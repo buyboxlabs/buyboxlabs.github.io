@@ -1090,7 +1090,7 @@ body{-webkit-tap-highlight-color:transparent;text-rendering:optimizeLegibility}
 
     <form class="c-form rv d1" id="cform" novalidate>
       <h3>Get your free store audit</h3>
-      <p>Fill in the form and we'll get back to you with your audit and next steps.</p>
+      <p>Fill in the form and we'll email you back with your audit and next steps.</p>
       <div class="fg">
         <input type="checkbox" name="botcheck" class="hp" tabindex="-1" autocomplete="off">
         <div class="fld"><label for="f-name">Full name *</label><input id="f-name" name="name" type="text" placeholder="John Smith" required></div>
@@ -1183,7 +1183,8 @@ body{-webkit-tap-highlight-color:transparent;text-rendering:optimizeLegibility}
 /* ================= SETTINGS: EDIT THESE ================= */
 const WHATSAPP = "923489676071";             // country code + number, no + or spaces
 const EMAIL    = "sanaullah1696@gmail.com";     // your business email
-const W3F_KEY  = "YOUR_WEB3FORMS_ACCESS_KEY";// free key from https://web3forms.com
+const FORM_TO  = "sanaullah1696@gmail.com"; // form messages are emailed here (via formsubmit.co)
+const W3F_KEY  = "YOUR_WEB3FORMS_ACCESS_KEY";// optional: Web3Forms key instead of FormSubmit
 /* ======================================================== */
 
 const waLink = msg => "https://wa.me/" + WHATSAPP + "?text=" + encodeURIComponent(msg || "Hi BuyBox Labs!");
@@ -1283,20 +1284,29 @@ document.getElementById("fwa").onclick = () => { if (valid()) { window.open(waLi
 form.addEventListener("submit", async e => {
   e.preventDefault();
   if (!valid()) return;
-  if (W3F_KEY.startsWith("YOUR_")) { // email service not set up yet → use WhatsApp so no lead is lost
-    window.open(waLink(summary()), "_blank", "noopener");
-    show("ok", "WhatsApp opened with your details. Just press send!"); return;
-  }
+  const d = Object.fromEntries(new FormData(form));
+  if (d.botcheck) return;                       // spam bot filled the hidden field
+  delete d.botcheck;
   fsend.disabled = true; fsend.textContent = "Sending…";
+  const subject = "New audit request: " + d.name + " (" + d.marketplace + ")";
   try {
-    const data = Object.fromEntries(new FormData(form));
-    data.access_key = W3F_KEY; data.subject = "New audit request: " + data.name + " (" + data.marketplace + ")"; data.from_name = "BuyBox Labs Website";
-    const res = await fetch("https://api.web3forms.com/submit", { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify(data) });
-    const j = await res.json();
-    if (j.success) { form.reset(); show("ok", "✓ Thank you! Your request was sent. We'll contact you shortly."); }
-    else throw new Error(j.message);
+    let ok = false, held = false;
+    if (!W3F_KEY.startsWith("YOUR_")) {          // Web3Forms (optional, if a key is added)
+      const r = await fetch("https://api.web3forms.com/submit", { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ ...d, access_key: W3F_KEY, subject, from_name: "BuyBox Labs Website" }) });
+      ok = (await r.json()).success === true;
+    } else {                                     // FormSubmit → straight to your Gmail, no key needed
+      const r = await fetch("https://formsubmit.co/ajax/" + FORM_TO, { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ Name: d.name, Email: d.email, "WhatsApp / Phone": d.phone || "-", Marketplace: d.marketplace, Service: d.service || "-", "Monthly revenue": d.revenue || "-", Message: d.message || "-",
+          _subject: subject, _replyto: d.email, _template: "table", _captcha: "false" }) });
+      const j = await r.json();
+      ok = j.success === true || j.success === "true";
+      held = /activat/i.test(j.message || "");   // first ever message: held until you confirm the activation email
+    }
+    if (ok || held) { form.reset(); show("ok", "✓ Thank you! Your request was sent. We'll contact you shortly."); }
+    else throw new Error("send failed");
   } catch (err) {
-    show("err", "Sorry, something went wrong. Please use the WhatsApp button instead.");
+    show("err", "Sorry, the message couldn't be sent. Please tap \"Send via WhatsApp\" instead.");
   } finally {
     fsend.disabled = false; fsend.innerHTML = 'Send Request <svg><use href="#i-arrow"/></svg>';
   }
